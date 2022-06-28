@@ -2,12 +2,13 @@
 #include <SDL2/SDL.h>
 #include <iostream>
 #include <cmath>
-
+#include <vector>
+#include <memory>
 
 class Gfx {
 public:
   // Contructor which initialize the parameters.
-  Gfx(int height_, int width_) : height(height_), width(width_) {
+  Gfx(int width_, int height_) : height(height_), width(width_) {
     SDL_Init(SDL_INIT_EVERYTHING); // Initializing SDL as Video
     this->window = SDL_CreateWindow("SDL Window", SDL_WINDOWPOS_UNDEFINED,
                                     SDL_WINDOWPOS_UNDEFINED, width, height, 0);
@@ -48,9 +49,11 @@ struct GameRect {
 };
 
 struct GameState {
+  int height;
+  int width;
+
   bool running;
   GameRect paddle;
-
   GameRect ball;
 
   float speed = 0.5f;
@@ -61,19 +64,25 @@ struct GameState {
   GameState(bool startRunning): running(startRunning) {}
   GameState(): running(true) {}
   
-  void init() {
+  void init(int width, int height) {
     this->paddle.x = 250;
-    this->paddle.y = 550;
+    this->paddle.y = 575;
     this->paddle.w = 200;
-    this->paddle.h = 50;
+    this->paddle.h = 15;
 
     this->ball.x = 250;
     this->ball.y = 200;
     this->ball.w = 25;
     this->ball.h = 25;
+    
+    this->height = height;
+    this->width = width;
+
   }
   ~GameState(){}
 };
+
+
 
 void handleKeyPress(SDL_Event& event, GameState* state) {
   std::cout << "Key " << (char)event.key.keysym.sym << " "
@@ -116,14 +125,84 @@ void DrawGameRect(Gfx* gfx, GameRect* rect) {
   SDL_RenderFillRect(gfx->renderer, &sdlRect); 
 }
 
-int main(int argc, char *argv[]) {
+bool rectIntersection(GameRect& rect1, GameRect& rect2) {
+  bool oneIntersectTwoX = (rect1.x <= rect2.x && rect2.x <= (rect1.x + rect1.w)) || (rect2.x <= rect1.x && rect1.x <= (rect2.x + rect2.w));
+  bool oneIntersectTwoY = (rect1.y <= rect2.y && rect2.y <= (rect1.y + rect1.h)) || (rect2.y <= rect1.y && rect1.y <= (rect2.y + rect2.h));
+  return oneIntersectTwoX && oneIntersectTwoY;
+}
 
-  Gfx gfx(600, 800);
+enum RectCollisionSide {TOP, BOTTOM, LEFT, RIGHT, NONE};
+
+/**
+ * Returns the side that Rect1 is touching on Rect2
+**/
+RectCollisionSide getCollisionSide(GameRect& rect1, GameRect& rect2) {
+
+  if(rectIntersection(rect1, rect2)) {
+    if((abs((rect1.x + rect1.w) - rect2.x)) <= 1) return RectCollisionSide::LEFT;
+    if(abs((rect1.x) - (rect2.x + rect2.w)) <= 1) return RectCollisionSide::RIGHT;
+    if(abs((rect1.y + rect1.h) - rect2.y) <= 1) return RectCollisionSide::TOP;
+    if(abs((rect1.y) - (rect2.y + rect2.h)) <= 1) return RectCollisionSide::BOTTOM;
+  }
+
+  return RectCollisionSide::NONE;
+}
+
+void UpdateGameState(GameState& state) {
+    // ball movement
+    state.ball.x = state.ball.x + (state.speed * state.dx);
+    state.ball.y = state.ball.y + (state.speed * state.dy);
+    
+    // ball window collision
+    if(state.ball.x + state.ball.w > state.width) state.dx = -1.0*state.dx;
+    if(state.ball.x < 0) state.dx = -1.0*state.dx;
+    if(state.ball.y + state.ball.h > state.height) state.dy = -1.0*state.dy;
+    if(state.ball.y < 0 ) state.dy = -1.0*state.dy; 
+
+    GameRect gameBounds;
+    gameBounds.x = 0;
+    gameBounds.y = 0;
+    gameBounds.w = state.width;
+    gameBounds.h = state.height;
+
+    if(rectIntersection(state.paddle, state.ball)) {
+//      std::cout << "ball hit paddle" << std::endl;
+      RectCollisionSide side = getCollisionSide(state.ball, state.paddle);
+//       std::cout << side << std::endl;
+      if(side != RectCollisionSide::NONE) {
+        switch(side) {
+          case RectCollisionSide::TOP:
+            std::cout << "TOP" << std::endl;
+            state.dy = -1.0 * state.dy;
+            break;
+          case RectCollisionSide::LEFT:
+            std::cout << "LEFT" << std::endl;
+            state.dx = -1.0 * state.dx;
+            break;
+          case RectCollisionSide::RIGHT:
+            std::cout << "RIGHt" << std::endl;
+            state.dx = -1.0 * state.dx;
+            break;
+          case RectCollisionSide::BOTTOM:
+            std::cout << "BOTTOM" << std::endl;
+            state.dy = -1.0 * state.dy;
+            break;
+          default:
+            break;
+           
+        }
+      }
+    }
+}
+
+int main(int argc, char *argv[]) {
+  int width = 800;
+  int height = 600;
+  Gfx gfx(width, height);
 
   // game state 
   GameState state;
-  state.init();
-
+  state.init(width, height);
 
   SDL_Event event; // Event variable
 
@@ -160,16 +239,7 @@ int main(int argc, char *argv[]) {
     DrawGameRect(&gfx, &(state.ball));
     
     // update
-    state.ball.x = state.ball.x + (state.speed * state.dx);
-    state.ball.y = state.ball.y + (state.speed * state.dy);
-    
-    if(state.ball.x + state.ball.w > gfx.width) state.dx = -1.0*state.dx;
-    if(state.ball.x < 0) state.dx = -1.0*state.dx;
-  
-    if(state.ball.y + state.ball.h > gfx.height) state.dy = -1.0*state.dy;
-    if(state.ball.y < 0 ) state.dy = -1.0*state.dy;
-
-
+    UpdateGameState(state);
 
     // end of loop
     SDL_RenderPresent(gfx.renderer);
